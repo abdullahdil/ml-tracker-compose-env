@@ -1,30 +1,57 @@
-name: CI
+name: CI/CD Pipeline
 
 on:
   push:
     branches: [ main ]
-  pull_request:
 
 jobs:
-  build:
+  build-and-test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_DB: mltracker
+          POSTGRES_USER: mluser
+          POSTGRES_PASSWORD: mlpassword
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
-      # Step 1: Checkout the code
-      - uses: actions/checkout@v3
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+        
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+        pip install pytest httpx  # Ensure test tools are there
 
-      # Step 2: Set up Python
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
+    - name: Run Tests
+      env:
+        DB_HOST: localhost
+        DB_PORT: 5432
+        DB_USER: mluser
+        DB_PASSWORD: mlpassword
+        DB_NAME: mltracker
+        PYTHONPATH: .
+      run: pytest
+      
+    - name: Login to Docker Hub
+      uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # Step 3: Install dependencies
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-
-      # Step 4: Run tests
-      - name: Run tests
-        run: |
-          pytest
+    - name: Build and Push
+      run: |
+        docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/ml-tracker:latest .
+        docker push ${{ secrets.DOCKERHUB_USERNAME }}/ml-tracker:latest
